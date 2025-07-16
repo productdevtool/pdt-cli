@@ -9,3 +9,8 @@ The PDT CLI will be a standalone, statically-linked binary compiled with Golang.
   * **AlecAivazis/survey/v2**: A library for creating beautiful, interactive prompts and wizards.
   * **fatih/color**: The most widely used library for colorized terminal output.
   * **briandowns/spinner**: A simple and effective library for displaying spinners during long-running AI operations.
+
+### **Naming Conventions**
+
+*   **Folders and Files**: Use `kebab-case` (e.g., `my-folder`, `my-file.md`).
+*   **JavaScript Variables and Database Fields**: Use `camelCase` (e.g., `myVariable`, `databaseFieldName`).
