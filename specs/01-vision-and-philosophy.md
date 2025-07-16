@@ -1,0 +1,3 @@
+## **1. Vision & Philosophy**
+
+The Product Dev Tool (PDT) CLI is the command center for the AI-native founder. It is not just a collection of scripts, but a thoughtfully designed interface that transforms the complex process of building a business into a series of simple, intuitive commands. Our philosophy is to abstract away the operational friction, not the code. The CLI acts as the "master prompt engineer," constructing the perfect, context-rich instructions for a gemini-cli assistant on the user's behalf, turning high-level goals into production-ready code.

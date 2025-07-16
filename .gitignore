@@ -1,0 +1,27 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when run with the -o option
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# pdt-cli specific
+pdt
+pdt-*
+pdt-dist/
+pdt-dist.tar.gz
+
+# OS-specific
+.DS_Store
