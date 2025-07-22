@@ -1,0 +1,42 @@
+Technical Specification: pdt code v2 - The Resilient ExecutorVersion: 1.0Date: 2025-07-22Status: Proposed1. Overview & GoalsThis document outlines the architecture for a significant upgrade to the pdt code command. The current implementation operates on a "happy path" assumption, directly translating a spec.md file into code and writing it to the filesystem. This approach is brittle and does not account for the realities of AI-driven development, where errors are common.The goal of the Resilient Executor is to evolve pdt code into a robust, reliable, and transactional tool that embraces failure as a part of the process. It aims to increase the success rate of code generation, ensure the user's codebase is never left in a broken state, and build user trust by providing a predictable and safe experience.This upgrade is guided by three core principles derived from our architectural analysis:Atomicity: All code generation operations are part of a single transaction. The transaction either fully succeeds, or it is fully rolled back, leaving the user's project untouched.Verifiability: Generated code is not trusted implicitly. It must be verified through a headless build and type-check before it is committed.Self-Correction: Build failures are not dead ends. They are treated as feedback to be automatically looped back into the AI for correction.2. Core Concept: The Transactional Execution WorkflowThe Resilient Executor reframes the pdt code command as a multi-stage transactional pipeline. The user initiates a single command, but internally, the Executor proceeds through a series of well-defined phases that ensure safety and reliability.High-Level Workflow Diagram:[spec.md] -> [1. Decompose Task] -> [Task Graph] -> [2. Stage & Generate] -> [In-Memory FS] -> [3. Verify] --(Success)--> [5. Commit to Disk]
+                                                                                                   |
+                                                                                                (Failure)
+                                                                                                   |
+                                                                                                   v
+                                                                                           [4. Self-Correct] --(Retry)--> [2. Stage & Generate]
+3. Phase 1: Task Decomposition & Dependency AnalysisThe Executor no longer treats the spec.md as a single, monolithic instruction. It first acts as a planner, deconstructing the specification into a series of discrete, manageable tasks.3.1. Specification ParsingThe Executor will parse the spec.md to identify all requested file modifications. This includes:Creating new files.Modifying existing files.Creating, modifying, or deleting specific functions, components, or types within files.3.2. Dependency Graph ConstructionOnce parsed, the Executor builds a dependency graph to determine the correct order of operations. This is critical for complex changes.Example: If a spec requires creating a new User TypeScript type and then creating a React component that imports and uses that User type, the Executor identifies that the type definition must be generated before the component.The output of this phase is a TaskGraph, a directed acyclic graph (DAG) where each node represents a specific file-level operation.3.3. Data Schema: TaskNodeinterface TaskNode {
+  id: string;
+  type: 'CREATE_FILE' | 'MODIFY_FILE';
+  filePath: string;
+  description: string; // The specific instruction from spec.md for this task
+  dependencies: string[]; // Array of TaskNode IDs that must be completed first
+  status: 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED';
+}
+4. Phase 2: Staged Generation in a Virtual FilesystemTo ensure atomicity, all file operations are performed against a temporary, in-memory representation of the user's project, not the actual disk.4.1. The In-Memory FilesystemBefore generation begins, the Executor creates a virtual filesystem overlay. It reads the contents of all files relevant to the current TaskGraph from the disk into memory.As the Executor processes each TaskNode in the graph, the LLM-generated code is written to this in-memory filesystem. The actual user files remain untouched.4.2. Sequential, Context-Aware ExecutionThe Executor traverses the TaskGraph in the determined dependency order.For each TaskNode, it constructs a prompt for the LLM. Crucially, this prompt includes not only the task description but also the contents of any dependent files from the current state of the in-memory filesystem.This ensures that if Task B depends on Task A, the LLM has access to the already-generated code from Task A when it works on Task B.5. Phase 3: Headless VerificationOnce all tasks in the TaskGraph have been successfully generated into the in-memory filesystem, the Executor initiates a verification step.5.1. Triggering the BuildThe Executor will run the project's build and type-checking commands (e.g., npm run build or tsc --noEmit) in a sandboxed, headless environment.This command is executed against the state of the in-memory filesystem.Performance: This step will heavily leverage Turborepo's caching. Since only a few files have changed, the build should be incremental and fast.5.2. OutcomeSuccess: If the build and type-check complete with a zero exit code, the transaction is considered valid. The pipeline proceeds to Phase 5.Failure: If the command returns a non-zero exit code, the verification has failed. The pipeline proceeds to Phase 4.6. Phase 4: The Self-Correction Feedback LoopA failed verification is an opportunity for automated improvement.6.1. Capturing Failure ContextThe Executor captures the complete output (stdout and stderr) from the failed build process. This output contains the specific compiler errors, type mismatches, or linting issues.6.2. Re-Prompting with Error ContextThe Executor identifies which TaskNode most likely caused the error (e.g., by parsing file paths from the error output).It then constructs a new, structured prompt to send to the LLM. This prompt is the key to the self-correction loop.6.3. Data Schema: CorrectionPrompt## ORIGINAL TASK
+Here was the original specification for the file at {filePath}:
+{original_task_description}
+
+## FAILED CODE
+This code was generated to accomplish the task, but it failed verification:
+```typescript
+{generated_code_from_memory}
+VERIFICATION ERRORThe build process produced the following error. Read this error carefully to understand what is wrong with the code above.{captured_compiler_error}
+INSTRUCTIONYour task is to fix the FAILED CODE based on the VERIFICATION ERROR. Do not re-introduce the same error. Provide only the complete, corrected code for the file at {filePath}.
+### 6.4. Retrying the Loop
+-   The corrected code from the LLM is written back to the in-memory filesystem, overwriting the faulty version.
+-   The pipeline then returns to Phase 3 (Headless Verification).
+-   **Circuit Breaker:** To prevent infinite loops, this self-correction process will be attempted a maximum of N times (e.g., 2-3 attempts) per `pdt code` run. If it fails after N retries, the entire transaction is aborted.
+
+## 7. Phase 5: Commit or Rollback
+
+This is the final, atomic step that affects the user's project.
+
+### 7.1. Commit
+-   If the verification phase (Phase 3) succeeds, the Executor iterates through the in-memory filesystem.
+-   For each file that was modified or created, it writes the final, validated content to the actual disk, overwriting the user's local files.
+-   The `pdt code` command then exits with a success message.
+
+### 7.2. Rollback
+-   If the verification and subsequent self-correction attempts fail, or if any other unrecoverable error occurs, the Executor simply discards the entire in-memory filesystem.
+-   No changes are ever written to the disk.
+-   The `pdt code` command exits with a clear error message explaining that the specification could not be implemented successfully and that the user's codebase has not been modified.

@@ -3,8 +3,92 @@ package prompt
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/productdevtool/pdt-cli/pkg/types"
 )
+
+// InitialPlannerPrompt creates a prompt to generate a draft spec and clarifying questions.
+func InitialPlannerPrompt(userGoal string) (string, error) {
+	projectContext, err := getProjectContext()
+	if err != nil {
+		return "", fmt.Errorf("error getting project context: %w", err)
+	}
+
+	prompt := fmt.Sprintf(`
+	You are an expert software engineering assistant.
+	Your goal is to transform a high-level user request into a detailed technical specification.
+
+	Here is the user's request:
+	"%s"
+
+	Here is the current project context (directory structure):
+	%s
+
+	Based on this, please perform the following actions:
+	1.  **Draft a technical specification:** This should be a markdown document outlining the necessary changes, new files, and overall approach.
+	2.  **Ask clarifying questions:** Identify any ambiguities or areas where more information is needed from the user.
+
+	Your response MUST be a JSON object with the following structure:
+	{
+	  "draftSpec": "<MARKDOWN_CONTENT>",
+	  "clarifyingQuestions": [
+	    {
+	      "questionId": "<UNIQUE_ID>",
+	      "question": "<YOUR_QUESTION>"
+	    }
+	  ]
+	}
+	`, userGoal, projectContext)
+
+	return prompt, nil
+}
+
+func RefineSpecPrompt(userGoal, draftSpec string, answeredQuestions []types.ClarifyingQuestion) (string, error) {
+	var answers strings.Builder
+	for _, q := range answeredQuestions {
+		answers.WriteString(fmt.Sprintf("Q: %s\nA: %s\n\n", q.Question, q.Answer))
+	}
+
+	prompt := fmt.Sprintf(`
+	You are an expert software engineering assistant.
+	You have already provided a draft specification and asked some clarifying questions.
+	Now, you have received answers to those questions.
+
+	Original user goal: "%s"
+
+	Initial draft spec:
+	%s
+
+	Here are the user's answers to your questions:
+	%s
+
+	Please update the draft specification based on these answers.
+	The final output should be just the refined markdown specification.
+	If you still have questions, please incorporate them into the spec as comments.
+	`, userGoal, draftSpec, answers.String())
+
+	return prompt, nil
+}
+
+func getProjectContext() (string, error) {
+	var context strings.Builder
+	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && (info.Name() == ".git" || info.Name() == "pdt-dist") {
+			return filepath.SkipDir
+		}
+		if !info.IsDir() {
+			context.WriteString(path + "\n")
+		}
+		return nil
+	})
+	return context.String(), nil
+}
 
 // RefineTaskPrompt generates a prompt for refining a task.md file.
 func RefineTaskPrompt(projectDescriptionPath string, taskPath string) (string, error) {
@@ -19,7 +103,7 @@ func RefineTaskPrompt(projectDescriptionPath string, taskPath string) (string, e
 	}
 
 	prompt := fmt.Sprintf(`\
-	Here is the project description:\n%s\n\n	Here is the task:\n%s\n\n	Please refine the task into a detailed, actionable technical plan. The plan should include specific file locations for code changes, required automated tests, and manual user-facing tests. The output should be a markdown file.
+	Here is the project description:\n%s\n\n\tHere is the task:\n%s\n\n\tPlease refine the task into a detailed, actionable technical plan. The plan should include specific file locations for code changes, required automated tests, and manual user-facing tests. The output should be a markdown file.
 	`, string(projectDescription), string(task))
 
 	return prompt, nil
@@ -48,7 +132,7 @@ func MasterImplementationPrompt(projectDescriptionPath string, taskPath string) 
 	}
 
 	prompt := fmt.Sprintf(`\
-	Here is the project description:\n%s\n\n	Here is the detailed task specification:\n%s\n\n	Please implement the task based on the provided project description and detailed specification. \
+	Here is the project description:\n%s\n\n\tHere is the detailed task specification:\n%s\n\n\tPlease implement the task based on the provided project description and detailed specification. \
 	Generate the necessary code, making sure to adhere to the specified file locations and include any required tests. \
 	Provide the output as code blocks, clearly indicating file paths for each code block.
 	`, string(projectDescription), string(task))
