@@ -1,11 +1,13 @@
 package prompt
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/productdevtool/pdt-cli/pkg/types"
 )
@@ -205,4 +207,43 @@ func ContentGenerationPrompt(contentType string, topic string) string {
 	Generate %s content about the following topic: %s. \
 	The output should be suitable for direct use and saved to a new file in a /content directory. \
 	`, contentType, topic)
+}
+
+const implementSpecTemplate = `You are an autonomous AI programmer agent with the ability to write to the local filesystem.
+Your high-level goal is to implement the feature described in the specification below.
+
+## Specification
+{{.SpecContent}}
+
+## Action
+1.  Read and understand the entire specification.
+2.  Determine all necessary file creations, modifications, and deletions to implement the feature.
+3.  Break the work up into small, manageable tasks.
+4.  Generate the complete, final code for all required files for each task.
+5.  Write the code to the correct file paths. Create directories as needed. Overwrite existing files completely.
+
+## Response
+After you have successfully written all files, respond with a summary of the actions you took (e.g., "Created foo.go, Modified bar.go"). Do not output the code you generated in your final response.
+`
+
+// ImplementSpecPrompt builds a prompt that instructs an external agent (gemini-cli)
+// to implement an entire feature specification.
+func ImplementSpecPrompt(specContent string) (string, error) {
+	tmpl, err := template.New("implementSpec").Parse(implementSpecTemplate)
+	if err != nil {
+		return "", err
+	}
+
+	data := struct {
+		SpecContent string
+	}{
+		SpecContent: specContent,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
 }

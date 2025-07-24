@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
+
+	"github.com/productdevtool/pdt-cli/pkg/types"
 )
 
 // Exists checks if a file or directory exists.
@@ -202,4 +205,35 @@ func GetValidationCommands() ([]string, error) {
 	}
 
 	return commands, nil
+}
+
+// ParseSpec parses a markdown spec file and extracts file operations.
+func ParseSpec(specContent string) ([]types.FileOperation, error) {
+	var operations []types.FileOperation
+	// Split the spec by the "### " delimiter to process each operation chunk separately.
+	// This avoids the need for complex lookaheads which are not supported in Go's regex engine.
+	chunks := strings.Split(specContent, "\n### ")
+
+	// The regex is now simpler, as it only needs to parse the content of each chunk.
+	re := regexp.MustCompile("(?s)(CREATE|MODIFY): `([^`]+)`\\n(.*)")
+
+	for _, chunk := range chunks {
+		// Skip empty chunks that can result from the split
+		if strings.TrimSpace(chunk) == "" {
+			continue
+		}
+
+		matches := re.FindStringSubmatch(chunk)
+
+		if len(matches) == 4 {
+			op := types.FileOperation{
+				Type:        matches[1],
+				FilePath:    strings.TrimSpace(matches[2]),
+				Description: strings.TrimSpace(matches[3]),
+			}
+			operations = append(operations, op)
+		}
+	}
+
+	return operations, nil
 }
